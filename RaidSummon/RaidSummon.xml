@@ -1,5 +1,9 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI_shared.xsd">
-	<Button name="RaidSummon_NameListButton" inherits="SecureActionButtonTemplate" virtual="true">
+	<!-- Was SecureActionButtonTemplate. Isolated testing showed that
+	     template's OnClick dispatch silently fails to execute type1/
+	     type2 macro actions on the current client, while an otherwise
+	     identical SecureUnitButtonTemplate button works correctly. -->
+	<Button name="RaidSummon_NameListButton" inherits="SecureUnitButtonTemplate" virtual="true">
 		<Size>
 			<AbsDimension x="100" y="16"/>
 		</Size>

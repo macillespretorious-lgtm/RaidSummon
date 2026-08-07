@@ -1,5 +1,8 @@
 RaidSummon = LibStub("AceAddon-3.0"):NewAddon("RaidSummon", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceComm-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale("RaidSummon", true)
+-- Classic Era's latest patch moved GetAddOnMetadata to C_AddOns; fall
+-- back to the old global for clients that haven't made the switch.
+local GetAddOnMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 
 --set options
 local options = {
@@ -52,6 +55,14 @@ local options = {
 					get = "GetOptionSummoningStone",
 					set = "SetOptionSummoningStone",
 					order = 15,
+				},
+				autoremoveinrange = {
+					type = "toggle",
+					name = L["OptionAutoRemoveInRangeName"],
+					desc = L["OptionAutoRemoveInRangeDesc"],
+					get = "GetOptionAutoRemoveInRange",
+					set = "SetOptionAutoRemoveInRange",
+					order = 16,
 				},
 			}
 		},
@@ -187,9 +198,15 @@ local defaults = {
 		zone = true,
 		flashwindow = true,
 		keywordsinit = false,
-		summoningstone = true
+		summoningstone = true,
+		autoremoveinrange = true
 	}
 }
+
+-- CheckInteractDistance's follow-range index (confirmed working on the
+-- current client). Interval in seconds between range checks.
+local AUTO_REMOVE_DISTANCE_INDEX = 4
+local AUTO_REMOVE_CHECK_INTERVAL = 2
 
 function RaidSummon:OnEnable()
 	self:Print(L["AddonEnabled"](GetAddOnMetadata("RaidSummon", "Version"), GetAddOnMetadata("RaidSummon", "Author")))
@@ -203,6 +220,15 @@ function RaidSummon:OnEnable()
 	self:RegisterEvent("CHAT_MSG_YELL", "msgParser")
 	self:RegisterEvent("CHAT_MSG_WHISPER", "msgParser")
 	self:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+
+	-- Auto-remove queued players once they're back in range. Only
+	-- meaningful from the summoner's own position, so Warlock-only (a
+	-- non-Warlock's proximity to a queued player says nothing about
+	-- whether the Warlock still needs to summon them).
+	local _, playerClassFilename = UnitClass("player")
+	if playerClassFilename == "WARLOCK" then
+		self.autoRemoveInRangeTimer = self:ScheduleRepeatingTimer("CheckQueueRange", AUTO_REMOVE_CHECK_INTERVAL)
+	end
 
 	--Blizzard Menu
 	Menu.ModifyMenu("MENU_UNIT_RAID_PLAYER", function(ownerRegion, rootDescription, contextData)
@@ -227,6 +253,10 @@ end
 
 function RaidSummon:OnDisable()
 	self:Print(L["AddonDisabled"])
+	if self.autoRemoveInRangeTimer then
+		self:CancelTimer(self.autoRemoveInRangeTimer)
+		self.autoRemoveInRangeTimer = nil
+	end
 	RaidSummonSyncDB = {}
 end
 
@@ -340,6 +370,31 @@ function RaidSummon:UNIT_SPELLCAST_CHANNEL_START(eventName,...)
 	end
 end
 
+--Periodically drops queued players who are already back in interact
+--range. Only runs for Warlocks (see OnEnable) since range only means
+--anything relative to the summoner's own position.
+function RaidSummon:CheckQueueRange()
+	if not self.db.profile.autoremoveinrange then
+		return
+	end
+	if not IsInRaid() or not RaidSummonSyncDB or not RaidSummonSyncDB[1] then
+		return
+	end
+
+	--copy first: table.remove while iterating would skip entries
+	local inRange = {}
+	for i, v in ipairs(RaidSummonSyncDB) do
+		if UnitExists(v) and CheckInteractDistance(v, AUTO_REMOVE_DISTANCE_INDEX) then
+			table.insert(inRange, v)
+		end
+	end
+
+	for _, v in ipairs(inRange) do
+		print(L["MemberInRange"](v))
+		RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE, v, "RAID")
+	end
+end
+
 --Ace3 Comm
 function RaidSummon:OnCommReceived(prefix, message, distribution, sender)
 	if (prefix) then
@@ -449,27 +504,13 @@ function RaidSummon:NameListButton_PreClick(source, button)
 
 	RaidSummon:getRaidMembers()
 
-	if RaidSummonRaidMembersDB then
-		for i, v in ipairs (RaidSummonRaidMembersDB) do
-			if v.rName == name then
-				raidIndex = "raid"..v.rIndex
-			end
-		end
-
-		if raidIndex then
-			--set target when not in combat (securetemplate)
-			if not InCombatLockdown() then
-				if RaidSummonRaidMembersDB then
-					source:SetAttribute("type1", "target")
-					source:SetAttribute("unit", raidIndex)
-				end
-				source:SetAttribute("type2", "spell")
-				source:SetAttribute("spell", "698") --698 - Ritual of Summoning
-			else
-				print(L["Lockdown"])
-			end
-		end
-	end
+	-- Secure attributes (type1/macrotext1/type2/macrotext2) are staged
+	-- once in UpdateList() when the button's name/text is set, not here.
+	-- Re-staging in PreClick on every click did not reliably take effect
+	-- in time for the same click to use. Attributes staged before combat
+	-- remain valid through combat, so clicking still works mid-fight
+	-- even though UpdateList() itself can't restage anything new while
+	-- InCombatLockdown() is true.
 
 	if buttonName == "RightButton" and targetname ~= nil and not InCombatLockdown() then
 	
@@ -567,14 +608,33 @@ function RaidSummon:UpdateList()
 			end
 
 			if not InCombatLockdown() then
-				_G["RaidSummon_NameList"..i]:Show()
+				-- Stage secure attributes here, once, when the list is
+				-- built, rather than inside a PreClick handler on every
+				-- click. Re-staging in PreClick (the old approach) did not
+				-- reliably take effect in time for the same click to use.
+				local btn = _G["RaidSummon_NameList"..i]
+				local rName = RaidSummonBrowseDB[i].rName
+				local ritualSpellName = GetSpellInfo(698) --698 - Ritual of Summoning
+				btn:SetAttribute("unit", nil)
+				btn:SetAttribute("type1", "macro")
+				btn:SetAttribute("macrotext1", "/target "..rName)
+				if ritualSpellName then
+					btn:SetAttribute("type2", "macro")
+					btn:SetAttribute("macrotext2", "/target "..rName.."\n/cast "..ritualSpellName)
+				end
+				btn:Show()
 			else
 				RaidSummon:UpdateListCombatCheck()
 			end
 		else
 			if not InCombatLockdown() then
 				_G["RaidSummon_NameList"..i.."TextName"]:SetText("")
-				_G["RaidSummon_NameList"..i]:Hide()
+				local btn = _G["RaidSummon_NameList"..i]
+				btn:SetAttribute("type1", nil)
+				btn:SetAttribute("macrotext1", nil)
+				btn:SetAttribute("type2", nil)
+				btn:SetAttribute("macrotext2", nil)
+				btn:Hide()
 			else
 				RaidSummon:UpdateListCombatCheck()
 			end
@@ -605,15 +665,29 @@ function RaidSummon:getRaidMembers()
 		if (members > 0) then
 		RaidSummonRaidMembersDB = {}
 
+			-- GetRaidRosterInfo(i)'s index is the roster LIST position,
+			-- which is not guaranteed to match the "raidN" unit token
+			-- (actual subgroup slot). They only coincidentally line up
+			-- for some raid compositions. Resolve rIndex from the actual
+			-- unit token instead of trusting the roster-list position.
 			for i = 1, members do
 				local rName, rRank, rSubgroup, rLevel, rClass, rfileName = GetRaidRosterInfo(i)
 
 				if rName and rClass and rfileName then
-					RaidSummonRaidMembersDB[i] = {}
-					RaidSummonRaidMembersDB[i].rIndex = i
-					RaidSummonRaidMembersDB[i].rName = rName
-					RaidSummonRaidMembersDB[i].rClass = rClass
-					RaidSummonRaidMembersDB[i].rfileName = rfileName
+					local unitToken
+					for u = 1, MAX_RAID_MEMBERS do
+						if UnitName("raid"..u) == rName then
+							unitToken = u
+							break
+						end
+					end
+					if unitToken then
+						RaidSummonRaidMembersDB[i] = {}
+						RaidSummonRaidMembersDB[i].rIndex = unitToken
+						RaidSummonRaidMembersDB[i].rName = rName
+						RaidSummonRaidMembersDB[i].rClass = rClass
+						RaidSummonRaidMembersDB[i].rfileName = rfileName
+					end
 				end
 			end
 		end
@@ -741,6 +815,10 @@ function RaidSummon:GetOptionSummoningStone(info)
 	return self.db.profile.summoningstone
 end
 
+function RaidSummon:GetOptionAutoRemoveInRange(info)
+	return self.db.profile.autoremoveinrange
+end
+
 function RaidSummon:SetOptionWhisper(info, value)
 	self.db.profile.whisper = value
 	if value == true then
@@ -783,6 +861,15 @@ function RaidSummon:SetOptionSummoningStone(info, value)
 		print(L["OptionSummoningStoneEnabled"])
 	else
 		print(L["OptionSummoningStoneDisabled"])
+	end
+end
+
+function RaidSummon:SetOptionAutoRemoveInRange(info, value)
+	self.db.profile.autoremoveinrange = value
+	if value == true then
+		print(L["OptionAutoRemoveInRangeEnabled"])
+	else
+		print(L["OptionAutoRemoveInRangeDisabled"])
 	end
 end
 

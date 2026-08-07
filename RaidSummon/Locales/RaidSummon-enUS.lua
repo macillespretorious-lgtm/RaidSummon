@@ -20,6 +20,9 @@ end
 L["MemberAdded"] = function(X,Y)
 	return '|cff9482c9RaidSummon:|r Adding player ' .. X .. ' to the summoning frame as requested by ' .. Y
 end
+L["MemberInRange"] = function(X)
+	return '|cff9482c9RaidSummon:|r Removing player ' .. X .. ' from the summoning frame, already in range'
+end
 L["AddAllMessage"] = "|cff9482c9RaidSummon:|r Adding all players"
 
 --Options
@@ -33,6 +36,8 @@ L["OptionFlashwindowName"] = "Flash Window"
 L["OptionFlashwindowDesc"] = "Flashes the Windows when someone requests a summon."
 L["OptionSummoningStoneName"] = "Summoning Stone"
 L["OptionSummoningStoneDesc"] = "Enable announcement when interacting with a Summoning Stone."
+L["OptionAutoRemoveInRangeName"] = "Auto-Remove In Range"
+L["OptionAutoRemoveInRangeDesc"] = "Automatically remove a player from the summoning frame once they're already within interact range of you (Warlock only)."
 L["OptionHelpName"] = "Help"
 L["OptionHelpDesc"] = "Shows a list of supported commands and options."
 L["OptionConfigName"] = "Config"
@@ -80,6 +85,8 @@ L["OptionFlashwindowEnabled"] = "|cff9482c9RaidSummon:|r Option flash window |cf
 L["OptionFlashwindowDisabled"] = "|cff9482c9RaidSummon:|r Option flash window |cffff0000disabled|r"
 L["OptionSummoningStoneEnabled"] = "|cff9482c9RaidSummon:|r Option Summoning Stone |cff00ff00enabled|r"
 L["OptionSummoningStoneDisabled"] = "|cff9482c9RaidSummon:|r Option Summoning Stone |cffff0000disabled|r"
+L["OptionAutoRemoveInRangeEnabled"] = "|cff9482c9RaidSummon:|r Option auto-remove in range |cff00ff00enabled|r"
+L["OptionAutoRemoveInRangeDisabled"] = "|cff9482c9RaidSummon:|r Option auto-remove in range |cffff0000disabled|r"
 L["OptionHelpPrint"] = [[
 |cff9482c9RaidSummon usage:|r
 /rs or /raidsummon { clear | config | help | list | add | addall | remove | toggle | whisper | zone | kwlist | kwadd | kwremove }
