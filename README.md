@@ -1,5 +1,13 @@
 # RaidSummon
 
+> **This is a fork** of [isitLoVe/RaidSummon](https://github.com/isitLoVe/RaidSummon) with fixes for the current Classic Era client, pending review upstream ([PR #63](https://github.com/isitLoVe/RaidSummon/pull/63), [PR #64](https://github.com/isitLoVe/RaidSummon/pull/64)). If you just want the original addon, use the Download link below instead.
+>
+> **What's fixed here that isn't in the upstream release yet:**
+> - **Summon/target buttons working again** — after a recent client update, left-click-to-target and right-click-to-summon on the name list silently stopped doing anything (no error, just nothing happened). Root cause was two separate bugs: the addon was resolving the wrong in-game unit for a given raid member in some raid compositions, and the button template it used to fire the click action (`SecureActionButtonTemplate`) stopped dispatching correctly on the current client — swapped to `SecureUnitButtonTemplate`, which works.
+> - **New: Auto-Remove In Range** — queued players are now automatically dropped from the summon list once they're already close enough to you (e.g. they walked there, got a portal, or someone else summoned them), so you don't waste time/mana summoning someone who doesn't need it. On by default, toggle it off in `/rs config` if you don't want it.
+>
+> To use this fork: download this repo's `RaidSummon` folder into your `Interface/AddOns` folder the same way you would the original.
+
 ## Download
 https://www.curseforge.com/wow/addons/raidsummon
 
