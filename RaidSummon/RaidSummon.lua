@@ -56,6 +56,14 @@ local options = {
 					set = "SetOptionSummoningStone",
 					order = 15,
 				},
+				autoremoveinrange = {
+					type = "toggle",
+					name = L["OptionAutoRemoveInRangeName"],
+					desc = L["OptionAutoRemoveInRangeDesc"],
+					get = "GetOptionAutoRemoveInRange",
+					set = "SetOptionAutoRemoveInRange",
+					order = 16,
+				},
 			}
 		},
 		commands = {
@@ -190,9 +198,15 @@ local defaults = {
 		zone = true,
 		flashwindow = true,
 		keywordsinit = false,
-		summoningstone = true
+		summoningstone = true,
+		autoremoveinrange = true
 	}
 }
+
+-- CheckInteractDistance's follow-range index (confirmed working on the
+-- current client). Interval in seconds between range checks.
+local AUTO_REMOVE_DISTANCE_INDEX = 4
+local AUTO_REMOVE_CHECK_INTERVAL = 2
 
 function RaidSummon:OnEnable()
 	self:Print(L["AddonEnabled"](GetAddOnMetadata("RaidSummon", "Version"), GetAddOnMetadata("RaidSummon", "Author")))
@@ -206,6 +220,15 @@ function RaidSummon:OnEnable()
 	self:RegisterEvent("CHAT_MSG_YELL", "msgParser")
 	self:RegisterEvent("CHAT_MSG_WHISPER", "msgParser")
 	self:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+
+	-- Auto-remove queued players once they're back in range. Only
+	-- meaningful from the summoner's own position, so Warlock-only (a
+	-- non-Warlock's proximity to a queued player says nothing about
+	-- whether the Warlock still needs to summon them).
+	local _, playerClassFilename = UnitClass("player")
+	if playerClassFilename == "WARLOCK" then
+		self.autoRemoveInRangeTimer = self:ScheduleRepeatingTimer("CheckQueueRange", AUTO_REMOVE_CHECK_INTERVAL)
+	end
 
 	--Blizzard Menu
 	Menu.ModifyMenu("MENU_UNIT_RAID_PLAYER", function(ownerRegion, rootDescription, contextData)
@@ -230,6 +253,10 @@ end
 
 function RaidSummon:OnDisable()
 	self:Print(L["AddonDisabled"])
+	if self.autoRemoveInRangeTimer then
+		self:CancelTimer(self.autoRemoveInRangeTimer)
+		self.autoRemoveInRangeTimer = nil
+	end
 	RaidSummonSyncDB = {}
 end
 
@@ -340,6 +367,31 @@ function RaidSummon:UNIT_SPELLCAST_CHANNEL_START(eventName,...)
 				end
 			end
 		end
+	end
+end
+
+--Periodically drops queued players who are already back in interact
+--range. Only runs for Warlocks (see OnEnable) since range only means
+--anything relative to the summoner's own position.
+function RaidSummon:CheckQueueRange()
+	if not self.db.profile.autoremoveinrange then
+		return
+	end
+	if not IsInRaid() or not RaidSummonSyncDB or not RaidSummonSyncDB[1] then
+		return
+	end
+
+	--copy first: table.remove while iterating would skip entries
+	local inRange = {}
+	for i, v in ipairs(RaidSummonSyncDB) do
+		if UnitExists(v) and CheckInteractDistance(v, AUTO_REMOVE_DISTANCE_INDEX) then
+			table.insert(inRange, v)
+		end
+	end
+
+	for _, v in ipairs(inRange) do
+		print(L["MemberInRange"](v))
+		RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE, v, "RAID")
 	end
 end
 
@@ -763,6 +815,10 @@ function RaidSummon:GetOptionSummoningStone(info)
 	return self.db.profile.summoningstone
 end
 
+function RaidSummon:GetOptionAutoRemoveInRange(info)
+	return self.db.profile.autoremoveinrange
+end
+
 function RaidSummon:SetOptionWhisper(info, value)
 	self.db.profile.whisper = value
 	if value == true then
@@ -805,6 +861,15 @@ function RaidSummon:SetOptionSummoningStone(info, value)
 		print(L["OptionSummoningStoneEnabled"])
 	else
 		print(L["OptionSummoningStoneDisabled"])
+	end
+end
+
+function RaidSummon:SetOptionAutoRemoveInRange(info, value)
+	self.db.profile.autoremoveinrange = value
+	if value == true then
+		print(L["OptionAutoRemoveInRangeEnabled"])
+	else
+		print(L["OptionAutoRemoveInRangeDisabled"])
 	end
 end
 
