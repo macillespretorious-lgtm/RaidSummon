@@ -622,6 +622,14 @@ function RaidSummon:getRaidMembers()
 				local rName, rRank, rSubgroup, rLevel, rClass, rfileName = GetRaidRosterInfo(i)
 
 				if rName and rClass and rfileName then
+					-- Prefer the verified "raidN" unit token, but fall
+					-- back to the roster-list position if it can't be
+					-- cross-matched (e.g. a name mismatch between
+					-- GetRaidRosterInfo and UnitName for names with
+					-- accented/special characters) -- dropping the
+					-- member entirely instead left a hole in this
+					-- array, which silently truncated every ipairs()
+					-- loop over it after the first unmatched member.
 					local unitToken
 					for u = 1, MAX_RAID_MEMBERS do
 						if UnitName("raid"..u) == rName then
@@ -629,13 +637,13 @@ function RaidSummon:getRaidMembers()
 							break
 						end
 					end
-					if unitToken then
-						RaidSummonRaidMembersDB[i] = {}
-						RaidSummonRaidMembersDB[i].rIndex = unitToken
-						RaidSummonRaidMembersDB[i].rName = rName
-						RaidSummonRaidMembersDB[i].rClass = rClass
-						RaidSummonRaidMembersDB[i].rfileName = rfileName
-					end
+
+					table.insert(RaidSummonRaidMembersDB, {
+						rIndex = unitToken or i,
+						rName = rName,
+						rClass = rClass,
+						rfileName = rfileName,
+					})
 				end
 			end
 		end
