@@ -384,7 +384,10 @@ function RaidSummon:CheckQueueRange()
 	--copy first: table.remove while iterating would skip entries
 	local inRange = {}
 	for i, v in ipairs(RaidSummonSyncDB) do
-		if UnitExists(v) and CheckInteractDistance(v, AUTO_REMOVE_DISTANCE_INDEX) then
+		--never auto-remove yourself: your distance to yourself is always 0, so a
+		--Warlock who queues themselves (types 123) would count as "in range" of
+		--themselves and be dropped from the shared list within a couple of seconds.
+		if not UnitIsUnit(v, "player") and UnitExists(v) and CheckInteractDistance(v, AUTO_REMOVE_DISTANCE_INDEX) then
 			table.insert(inRange, v)
 		end
 	end
